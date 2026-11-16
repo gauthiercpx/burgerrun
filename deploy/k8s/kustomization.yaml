@@ -12,7 +12,7 @@ images:
   # La seule ligne à changer pour déployer une nouvelle version : ArgoCD la voit au
   # prochain passage et remplace le pod. Revenir en arrière : `git revert`.
   - name: ghcr.io/gauthiercpx/burgerrun
-    newTag: "latest"
+    newTag: "sha-76e4d015e19dec4838f1d1174ac9e9ab19f96f1a"
 
 # Engendré plutôt que déclaré : le nom du ConfigMap porte une empreinte de son contenu,
 # donc modifier le routage du tunnel redémarre cloudflared, qui ne lit sa configuration
