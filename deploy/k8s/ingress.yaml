@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: burgerrun
+  annotations:
+    # Les courses passent par un WebSocket : sans ces délais, nginx coupe la connexion
+    # au bout de 60 s de silence. Le jeu envoie son état dix fois par seconde, mais une
+    # pause réseau ne doit pas faire sauter la partie.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  # Pas de bloc `tls` : le certificat générique *.home.gauthiercpx.dev est le certificat
+  # par défaut de l'ingress-nginx (voir infra/wildcard-cert.yaml dans le dépôt homelab).
+  rules:
+    - host: burgerrun.home.gauthiercpx.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: burgerrun
+                port:
+                  name: http

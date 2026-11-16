@@ -1,0 +1,333 @@
+<!doctype html><meta charset=utf-8><title>Burger Run 3D</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;font:16px system-ui,sans-serif;color:#fff;background:#222}
+canvas{position:fixed;inset:0;width:100%;height:100%}
+#hud{position:fixed;inset:0;pointer-events:none;text-shadow:0 2px 6px #000;font-weight:700}
+#hud>*{position:absolute}
+#tl{top:12px;left:16px;font-size:24px}#tr{top:12px;right:16px;text-align:right}
+#bars{bottom:16px;left:50%;transform:translateX(-50%);width:min(520px,90vw);font-size:12px}
+.bar{height:12px;background:#0009;border-radius:6px;margin-top:5px;overflow:hidden}.bar i{display:block;height:100%;width:0}
+#ui{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+#card{pointer-events:auto;background:#000c;border:2px solid #fff3;border-radius:14px;padding:20px 26px;max-width:560px;text-align:center;backdrop-filter:blur(6px);max-height:92vh;overflow:auto}
+h1,h2{margin:.2em 0}p{line-height:1.45}.row{margin:8px 0}.dim{opacity:.7;font-size:13px}
+button{font:inherit;font-weight:700;border:2px solid #fff6;background:#fff2;color:#fff;border-radius:8px;padding:7px 14px;margin:3px;cursor:pointer}
+button:hover,button.on{background:#fff5;border-color:#fff}button.go{background:#f60;border-color:#fa6;font-size:18px;padding:9px 26px}
+#say{position:fixed;left:50%;bottom:92px;transform:translateX(-50%);max-width:min(560px,92vw);background:#000b;border:2px solid #fff3;border-radius:12px;padding:9px 16px;font-weight:600;text-shadow:none;opacity:0;transition:opacity .35s;pointer-events:none}
+.sw{width:34px;height:34px;padding:0;border-radius:50%}
+input{font:inherit;background:#fff2;color:#fff;border:2px solid #fff4;border-radius:8px;padding:6px 8px;width:130px}
+#lb{top:52px;left:16px;font-size:13px;line-height:1.6}
+</style>
+<canvas id=c></canvas>
+<div id=hud><div id=tl><span id=hp style=color:#f44></span> <span id=scr></span></div>
+<div id=lb></div><div id=tr><div id=lv></div><div id=spd></div><div id=ex></div></div>
+<div id=bars><div>TURBO (Shift / Space)</div><div class=bar><i id=mb style=background:#4cf></i></div><div>ROAD TO BURGER KING</div><div class=bar><i id=pb style=background:#fc3></i></div></div></div>
+<div id=say></div><div id=ui></div>
+<script>
+const gl=c.getContext('webgl',{alpha:true,antialias:true}),$=id=>document.getElementById(id);
+// ---------- config & levels ----------
+let cfg={col:0,style:0,wing:1,flame:0,best:0,name:'',room:'main',srv:''};
+try{Object.assign(cfg,JSON.parse(localStorage.br3d))}catch(e){/* first run or storage blocked: keep defaults */}
+if(!cfg.srv)cfg.srv=location.protocol.startsWith('http')?(location.protocol=='https:'?'wss://':'ws://')+location.host:'ws://localhost:8080';
+const save=()=>{try{localStorage.br3d=JSON.stringify(cfg)}catch(e){/* storage blocked: skip saving */}};
+const COLS=[['Red',[.85,.08,.08]],['Blue',[.1,.3,.9]],['Yellow',[.95,.75,.1]],['Green',[.1,.7,.3]],['Violet',[.6,.2,.85]],['White',[.9,.9,.92]]];
+const FL=[[1,.55,.1],[.2,.6,1],[.8,.25,1]],STY=['Racer','Wedge','Hover'];
+const h2r=h=>[1,3,5].map(i=>parseInt(h.substr(i,2),16)/255);
+const LV=[
+{n:'Dawn Patrol',len:9000,top:'#3b7fd1',hor:'#ffd9a8',sunX:24,sunC:'#fff4cc',grass:[.26,.5,.22],tree:[.16,.42,.18],sun:[1,.85,.65],sky:[.55,.65,.85],gnd:[.3,.28,.2],mesa:[.62,.45,.4],night:0,
+ rad:[[.02,['Mia','#ff7aa8','Rex, it is Mia. Tony is fainting and Joe will not stop complaining. Hurry!']],[.2,['Joe','#ffd24a','Mind the trucks, kid. They do not brake for couriers.']],[.4,['Tony','#6ab0ff','I can smell the fries from here. Floor it!']],[.6,['Mia','#ff7aa8','Halfway! Grab burgers on the way — we cannot live on hope.']],[.8,['Joe','#ffd24a','I can see your dust cloud. Almost there.']],[.94,['Mia','#ff7aa8','Ease off at the sign! We are setting the table.']]],
+ intro:"2084. The Hyperway is the last open road, and the only thing still open on it is a <b>Burger King</b> drive-thru. Your crew — Mia, Tony and Grandpa Joe — has been stuck at the first stop for two days with empty stomachs. You are Rex, the best courier on the Hyperway. Get there fast, and grab every burger you can.",
+ fin:[['Mia','#ff7aa8','Rex! You made it — and you brought burgers!'],['Tony','#6ab0ff','Mmmf... best burger of my life. Mmmf.'],['Joe','#ffd24a','Back in my day we walked. Pass the fries.']]},
+{n:'Burnt Orange',len:11500,top:'#4a2072',hor:'#ff8a50',sunX:72,sunC:'#ffe09a',grass:[.38,.36,.18],tree:[.35,.3,.12],sun:[1,.55,.3],sky:[.55,.35,.55],gnd:[.35,.2,.15],mesa:[.5,.25,.3],night:0,
+ rad:[[.02,['Tony','#6ab0ff','Rex, the freight convoy is back. Use the orange pads for free turbo.']],[.2,['Mia','#ff7aa8','The sky is on fire out here. Pretty, but watch the road!']],[.4,['Joe','#ffd24a','In my day trucks had manners. Weave, kid, weave.']],[.6,['Tony','#6ab0ff','Burger King closes at dusk. Tick tock, Rex.']],[.8,['Mia','#ff7aa8','We can see you! Keep the shield for the last stretch.']],[.94,['Joe','#ffd24a','Park it. I am not getting any younger.']]],
+ intro:"The crew is fed, but the road ahead burns orange. A convoy of freight trucks blocks the next stretch and the second Burger King closes at dusk. Hit the turbo pads, dodge the traffic, and keep the shield handy.",
+ fin:[['Tony','#6ab0ff','Double cheese! Rex, you are a legend.'],['Mia','#ff7aa8','Sunset dinner at the drive-thru. Perfect.'],['Joe','#ffd24a','These fries are almost as good as the old days.']]},
+{n:'Midnight Special',len:14000,top:'#04041a',hor:'#23224f',sunX:80,sunC:'#dfe8ff',grass:[.08,.2,.14],tree:[.06,.16,.14],sun:[.35,.4,.8],sky:[.18,.2,.4],gnd:[.1,.1,.15],mesa:[.12,.12,.28],night:1,
+ rad:[[.02,['Joe','#ffd24a','Midnight run, Rex. Headlights on, brain on.']],[.2,['Tony','#6ab0ff','Traffic is thick tonight. Save your turbo for the gaps.']],[.4,['Mia','#ff7aa8','Everyone is here. The whole Hyperway came for midnight burgers!']],[.6,['Joe','#ffd24a','Past midnight now. Past my bedtime too.']],[.8,['Tony','#6ab0ff','Last stretch! I will save you the biggest burger.']],[.94,['Mia','#ff7aa8','There is the sign! You did it, Rex!']]],
+ intro:"Midnight. Headlights everywhere, and the last Burger King on the Hyperway is open all night. Everyone is waiting. One more run — faster, darker, busier.",
+ fin:[['Joe','#ffd24a','Rex, the Hyperway is ours again.'],['Mia','#ff7aa8','Burgers for everyone. Midnight feast!'],['Tony','#6ab0ff','Same time tomorrow? I am still hungry.']]}];
+// ---------- gl setup ----------
+const sh=(t,s)=>{const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);if(!gl.getShaderParameter(o,35713))throw gl.getShaderInfoLog(o);return o};
+const pr=gl.createProgram();
+gl.attachShader(pr,sh(35633,`attribute vec3 p,n;uniform mat4 P,V,M,R;varying vec3 wp,wn;varying float D;
+void main(){wp=(M*vec4(p,1)).xyz;wn=mat3(R)*n;gl_Position=P*V*vec4(wp,1);D=gl_Position.w;}`));
+gl.attachShader(pr,sh(35632,`precision mediump float;varying vec3 wp,wn;varying float D;
+uniform vec3 C,E,L,SC,SK,GR,FC;uniform float S,A,EM,FD,NT;
+void main(){vec3 N=normalize(wn),Vv=normalize(E-wp);float d=max(dot(N,L),0.);
+vec3 hemi=mix(GR,SK,N.y*.5+.5);vec3 col=C*(hemi*.75+SC*d*.85);
+vec3 H=normalize(L+Vv);col+=SC*pow(max(dot(N,H),0.),S*70.+1.)*S;
+col+=SK*pow(1.-max(dot(N,Vv),0.),3.)*.12*(S+.2);
+col*=.78+.22*smoothstep(0.,2.,wp.y);
+col=mix(col,C*1.5,EM);
+float f=smoothstep(40.,FD,D)*(1.-EM*.7);col=mix(col,FC,f);
+gl_FragColor=vec4(col,A);}`));
+gl.linkProgram(pr);gl.useProgram(pr);
+const V=[],Nn=[];
+[[0,0,1],[0,0,-1],[1,0,0],[-1,0,0],[0,1,0],[0,-1,0]].forEach(n=>{const a=n[1]||n[2]?[1,0,0]:[0,1,0],
+b=[n[1]*a[2]-n[2]*a[1],n[2]*a[0]-n[0]*a[2],n[0]*a[1]-n[1]*a[0]];
+[[-1,-1],[1,-1],[1,1],[-1,-1],[1,1],[-1,1]].forEach(([s,t])=>{V.push(...[0,1,2].map(i=>(n[i]+a[i]*s+b[i]*t)/2));Nn.push(...n)})});
+const buf=(d,l)=>{gl.bindBuffer(34962,gl.createBuffer());gl.bufferData(34962,new Float32Array(d),35044);const a=gl.getAttribLocation(pr,l);gl.enableVertexAttribArray(a);gl.vertexAttribPointer(a,3,5126,0,0,0)};
+buf(V,'p');buf(Nn,'n');
+const u={};['P','V','M','R','C','E','L','SC','SK','GR','FC','S','A','EM','FD'].forEach(k=>u[k]=gl.getUniformLocation(pr,k));
+gl.enable(2929);gl.enable(3042);gl.blendFuncSeparate(770,771,1,771);
+// ---------- math (column-major) ----------
+function mul(a,b){const o=new Array(16);for(let i=0;i<4;i++)for(let j=0;j<4;j++){let s=0;for(let k=0;k<4;k++)s+=a[k*4+j]*b[i*4+k];o[i*4+j]=s}return o}
+const X=(...m)=>m.reduce(mul),T=(x,y,z)=>[1,0,0,0,0,1,0,0,0,0,1,0,x,y,z,1],S=(x,y,z)=>[x,0,0,0,0,y,0,0,0,0,z,0,0,0,0,1];
+const RX=a=>{const c=Math.cos(a),s=Math.sin(a);return[1,0,0,0,0,c,s,0,0,-s,c,0,0,0,0,1]};
+const RY=a=>{const c=Math.cos(a),s=Math.sin(a);return[c,0,-s,0,0,1,0,0,s,0,c,0,0,0,0,1]};
+const RZ=a=>{const c=Math.cos(a),s=Math.sin(a);return[c,s,0,0,-s,c,0,0,0,0,1,0,0,0,0,1]};
+const nrm=v=>{const l=Math.hypot(...v);return v.map(x=>x/l)};
+function lookAt(e,t){const z=nrm([e[0]-t[0],e[1]-t[1],e[2]-t[2]]),x=nrm([z[2],0,-z[0]]),y=[z[1]*x[2]-z[2]*x[1],z[2]*x[0]-z[0]*x[2],z[0]*x[1]-z[1]*x[0]],d=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+return[x[0],y[0],z[0],0,x[1],y[1],z[1],0,x[2],y[2],z[2],0,-d(x,e),-d(y,e),-d(z,e),1]}
+const persp=(f,a,n,fa)=>{const t=1/Math.tan(f/2);return[t/a,0,0,0,0,t,0,0,0,0,(fa+n)/(n-fa),-1,0,0,2*fa*n/(n-fa),0]};
+function D(M,s,col,o){o=o||{};gl.uniformMatrix4fv(u.M,0,mul(M,S(s[0],s[1],s[2])));gl.uniformMatrix4fv(u.R,0,M);
+gl.uniform3fv(u.C,col);gl.uniform1f(u.S,o.s||0);gl.uniform1f(u.EM,o.e||0);gl.uniform1f(u.A,(o.a==null?1:o.a)*GA);gl.drawArrays(4,0,36)}
+// ---------- models ----------
+const SK=[[.95,.78,.62],[.78,.56,.4],[.55,.38,.26],[.98,.85,.72]],CAR=[[.8,.15,.15],[.15,.35,.8],[.9,.9,.2],[.2,.6,.3],[.85,.85,.88],[.2,.2,.22],[.9,.5,.1]];
+function burger(M,k){[[.1,[.9,.62,.28]],[.1,[.4,.2,.1]],[.03,[1,.8,.1]],[.05,[.3,.7,.2]],[.2,[.92,.65,.3]]].reduce((y,[h,col])=>{D(X(M,T(0,(y+h/2)*k,0)),[.5*k,h*k,.5*k],col,{s:.25});return y+h},0)}
+function person(M,p,t){const ph=p.ph,a=-1.55+Math.sin(t*4+ph)*.55,jeans=[.15,.2,.4];
+D(X(M,T(-.17,.45,0)),[.3,.9,.32],jeans);D(X(M,T(.17,.45,0)),[.3,.9,.32],jeans);
+D(X(M,T(0,1.25,0)),[.8,.8,.42],p.shirt);
+const H=X(M,T(0,1.95,0),RX(Math.sin(t*4+ph)*.12));
+D(H,[.46,.46,.46],p.skin,{s:.15});D(X(H,T(0,.25,-.02)),[.5,.14,.5],p.hair);D(X(H,T(0,.05,-.24)),[.5,.4,.06],p.hair);
+D(X(H,T(-.1,.05,.23)),[.07,.07,.03],[.05,.05,.05]);D(X(H,T(.1,.05,.23)),[.07,.07,.03],[.05,.05,.05]);
+const AL=X(M,T(-.5,1.55,0),RX(-.4+Math.sin(t*2+ph)*.1)),AR=X(M,T(.5,1.55,0),RX(a));
+D(X(AL,T(0,-.4,0)),[.2,.8,.24],p.shirt);D(X(AR,T(0,-.4,0)),[.2,.8,.24],p.shirt);
+D(X(AR,T(0,-.88,.08)),[.2,.14,.2],p.skin);burger(X(AR,T(0,-.9,.12),RX(1.2)),1.1)}
+function stand(M,o,t){const n=o.big;
+D(X(M,T(0,2,0)),[9,4,6],[.95,.88,.75],{s:.1});D(X(M,T(0,4.25,0)),[9.6,.5,6.6],[.65,.12,.08]);
+D(X(M,T(0,2.2,3.02)),[6,1.7,.1],[.15,.3,.45],{s:.9,e:LV[li].night*.5});D(X(M,T(-3.3,1.1,3.02)),[1.2,2.2,.1],[.3,.2,.12]);
+D(X(M,T(0,5.8,0)),[.4,3,.4],[.3,.3,.3]);
+[[6.9,[.95,.5,.1]],[6.35,[.85,.1,.1]],[5.85,[.95,.5,.1]]].forEach(([y,col],i)=>D(X(M,T(0,y,0)),[5.4,i==1?.5:.7,.7],col,{e:.7}));
+const xs=n?[-2.6,0,2.6]:[-1.7,1.7];
+o.pp.forEach((p,i)=>{const x=xs[i];D(X(M,T(x,.8,5.7)),[1.7,.1,1],[.7,.5,.3],{s:.3});D(X(M,T(x,.4,5.7)),[.2,.8,.2],[.3,.3,.3]);
+D(X(M,T(x+.3,.9,5.7)),[.4,.12,.3],[.9,.2,.1]);burger(X(M,T(x-.3,.85,5.7)),.9);person(X(M,T(x,0,4.5)),p,t)})}
+function lamp(M,night){D(X(M,T(0,3,0)),[.2,6,.2],[.3,.3,.3],{s:.3});D(X(M,T(0,6.1,.5)),[.5,.2,1.4],night?[1,.9,.6]:[.5,.5,.5],{e:night})}
+function tree(M,s,col){D(X(M,T(0,1.1*s,0)),[.5*s,2.2*s,.5*s],[.35,.22,.1]);
+[[2.6,3.4,1.5],[3.7,2.5,1.3],[4.6,1.5,1.1]].forEach(([y,w,h])=>D(X(M,T(0,y*s,0)),[w*s,h*s,w*s],col,{s:.05}))}
+function car(M,o,t){const col=o.col||[.7,.7,.7],w=o.w,l=o.l;
+if(o.k=='truck'){D(X(M,T(0,1.8,1.2)),[w,2.8,l-2.4],[.9,.9,.92],{s:.4});D(X(M,T(0,1.4,-l/2+1)),[w,2.2,2],col,{s:.6});D(X(M,T(0,1.8,-l/2+.1)),[w-.2,.9,.1],[.1,.15,.2],{s:1})}
+else{D(X(M,T(0,.65,0)),[w,.7,l],col,{s:.85});D(X(M,T(0,1.2,.3)),[w-.4,.6,l*.45],[.1,.15,.2],{s:1})}
+for(const sx of[-1,1]){D(X(M,T(sx*(w/2-.1),.45,l/2+.02)),[.4,.2,.05],[1,0,0],{e:1});for(const z of[-l*.32,l*.32])D(X(M,T(sx*w/2,.4,z)),[.3,.8,.8],[.05,.05,.05])}}
+function shipModel(M,t,bs,cf){cf=cf||cfg;const col=COLS[cf.col][1],f=FL[cf.flame],dk=[.08,.08,.1];let rz=3.6;
+if(cf.style==0){D(X(M,T(0,.6,0)),[1.8,.5,3.6],col,{s:.9});D(X(M,T(0,1.05,.4)),[1.2,.5,1.5],[.1,.15,.22],{s:1});D(X(M,T(0,.85,-1.3)),[1.6,.3,1.1],col,{s:.9});
+for(const sx of[-1,1])for(const z of[-1.2,1.2])D(X(M,T(sx*.95,.4,z)),[.4,.8,.8],dk);rz=1.8}
+else if(cf.style==1){D(X(M,T(0,.55,.3)),[2.2,.35,3.2],col,{s:.9});D(X(M,T(0,.5,-1.8)),[1,.25,1.8],col,{s:.9});D(X(M,T(0,.9,.6)),[.9,.4,1.4],[.1,.15,.22],{s:1});
+for(const sx of[-1,1]){D(X(M,T(sx*1.2,.7,1.1),RZ(sx*.5)),[.15,.7,1.2],col,{s:.8});D(X(M,T(sx*1.15,.4,1.2)),[.5,.8,.9],dk)}rz=1.9}
+else{D(X(M,T(0,.9,0)),[1.3,.6,3],col,{s:.9});D(X(M,T(0,1.3,-.2)),[.9,.4,1.2],[.1,.15,.22],{s:1});
+for(const sx of[-1,1]){D(X(M,T(sx*1.2,.9,.2)),[.5,.5,2.6],col,{s:.8});D(X(M,T(sx*1.2,.45,.2)),[.8,.1,2.2],f,{e:1,a:.8})}rz=1.6}
+if(cf.wing){D(X(M,T(0,1.45,1.5)),[2.1,.1,.55],dk,{s:.8});for(const sx of[-1,1])D(X(M,T(sx*.7,1.1,1.5)),[.1,.7,.15],dk)}
+for(const sx of[-1,1])D(X(M,T(sx*.6,.65,-1.85)),[.4,.2,.06],[1,1,.8],{e:1});
+const len=.7+Math.random()*.4+bs*2;for(const sx of[-1,1])D(X(M,T(sx*.5,.65,rz+len/2)),[.32,.32,len],f,{e:1,a:.9})}
+// ---------- state ----------
+const PZ=-8,R=(a,b)=>a+Math.random()*(b-a),Ri=n=>Math.random()*n|0,clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+let GA=1,wasB=false,ri=0,sq=[],sT=0,lastEv=-99,ck=0,st='menu',li=0,px=0,vx=0,hp=3,score=0,burg=0,total=0,meter=30,shield=0,pad=0,bs=0,inv=0,shake=0,dist=0,speed=9,scroll=0,t=0,fT=0,fS=0,spawnD=0,treeD=0,standD=0,obs=[],sc=[],pa=[],fin=null;
+const ce=[0,3,0],ct=[0,1,-10],K={};
+const MES=Array.from({length:18},(_,i)=>({x:-300+i*36+R(-12,12),z:-R(250,330),w:R(40,90),h:R(30,85)}));
+const mkP=(shirt,skin,hair)=>({shirt,skin:skin||SK[Ri(4)],hair:hair||[[.1,.07,.05],[.35,.2,.1],[.7,.55,.2]][Ri(3)],ph:R(0,6)});
+const rcol=()=>[R(.2,1),R(.2,1),R(.2,1)];
+function setEnv(L){document.body.style.background=`radial-gradient(circle at ${L.sunX}% 36%,${L.sunC} 0 2.5%,transparent 9%),linear-gradient(${L.top} 0%,${L.hor} 48%,${L.hor} 100%)`;
+gl.uniform3fv(u.SC,L.sun);gl.uniform3fv(u.SK,L.sky);gl.uniform3fv(u.GR,L.gnd);gl.uniform3fv(u.FC,h2r(L.hor));gl.uniform3fv(u.L,nrm([-.4,.8,.45]));gl.uniform1f(u.FD,330)}
+function addTree(z){sc.push({k:'tree',x:(Math.random()<.5?-1:1)*R(9,45),z,s:R(.8,1.8)});if(Math.random()<.3)sc.push({k:'lamp',x:Math.random()<.5?-8.6:8.6,z,r:0})}
+function addStand(z){const side=Math.random()<.5?-1:1;sc.push({k:'stand',x:side*16,z,ry:-side*Math.PI/2,pp:[mkP(rcol()),mkP(rcol())]})}
+function startLevel(i,d0=0){li=i;const L=LV[i];hp=3;score=0;burg=0;meter=30;shield=pad=bs=inv=shake=0;dist=d0;ck=0;ri=L.rad.filter(r=>r[0]*L.len<d0).length;sq=[];sT=0;px=vx=0;fT=fS=0;obs=[];sc=[];pa=[];setEnv(L);
+for(let z=PZ+15;z>-240;z-=7)addTree(z);spawnD=40;standD=R(150,300);
+fin={k:'stand',big:1,x:-16,z:PZ-L.len+d0,ry:Math.PI/2,pp:[mkP([.95,.4,.6],SK[3],[.25,.1,.08]),mkP([.2,.4,.9],SK[1],[.05,.05,.05]),mkP([.9,.8,.2],SK[0],[.85,.85,.85])]};sc.push(fin)}
+function spawnRow(){const lanes=[-4.5,-1.5,1.5,4.5].sort(()=>Math.random()-.5),n=1+(Math.random()<.35+li*.15),z=-235;
+for(let i=0;i<n;i++){const x=lanes[i]+R(-.4,.4),r=Math.random();
+obs.push(r<.45?{k:'car',x,z,w:2,l:4.2,sp:R(14,24),col:CAR[Ri(7)]}:r<.62?{k:'truck',x,z,w:2.6,l:8,sp:R(12,18),col:CAR[Ri(7)]}:r<.82?{k:'bar',x,z,w:3.2,l:.8}:{k:'cone',x,z,w:1.4,l:1.4})}
+if(n<3){const q=Math.random(),x=lanes[2]+R(-.4,.4);
+if(q<.5)obs.push({k:'burger',x,z,w:1,l:1,p:1});else if(q<.68)obs.push({k:'turbo',x,z,w:1,l:1,p:1});else if(q<.78)obs.push({k:'shield',x,z,w:1,l:1,p:1});else if(q<.9)obs.push({k:'pad',x,z,w:3,l:4,p:1})}}
+function burst(x,y,z,col,n){for(let i=0;i<n;i++)pa.push({x,y,z,vx:R(-5,5),vy:R(2,7),vz:R(-5,5),l:R(.4,.9),c:col,s:R(.1,.25),g:14})}
+// ---------- UI ----------
+const show=h=>$('ui').innerHTML=h?`<div id=card>${h}</div>`:'';
+function menuHTML(){return`<h1>🍔 BURGER RUN 3D</h1><p class=dim>Deliver yourself to the Burger King stops along the Hyperway.</p>
+<div class=row>Color: ${COLS.map((c,i)=>`<button class="sw${cfg.col==i?' on':''}" style="background:rgb(${c[1].map(v=>v*255|0)})" onclick="cs('col',${i})" title="${c[0]}"></button>`).join('')}</div>
+<div class=row>Body: ${STY.map((n,i)=>`<button class="${cfg.style==i?'on':''}" onclick="cs('style',${i})">${n}</button>`).join('')}</div>
+<div class=row>Spoiler: <button class="${cfg.wing?'on':''}" onclick="cs('wing',${cfg.wing?0:1})">${cfg.wing?'On':'Off'}</button> Turbo flame: ${FL.map((f,i)=>`<button class="sw${cfg.flame==i?' on':''}" style="background:rgb(${f.map(v=>v*255|0)})" onclick="cs('flame',${i})"></button>`).join('')}</div>
+<div class=row><button class=go onclick="go('start')">Start story</button></div>
+<div class=row><b>Multiplayer race</b> <span class=dim>(run burgerrun-server.js)</span></div>
+<div class=row><input placeholder="Your name" maxlength=16 value="${esc(cfg.name)}" oninput="cfg.name=this.value;save()"> <input placeholder=Room maxlength=20 value="${esc(cfg.room)}" oninput="cfg.room=this.value;save()"></div>
+<div class=row><input style="width:240px" value="${esc(cfg.srv)}" oninput="cfg.srv=this.value;save()"> <button onclick="netToggle()">${mp.ws?'Disconnect':'Connect'}</button></div><p class=dim>${esc(mp.status)}</p>
+<p class=dim>Best total score: ${cfg.best}<br>← → / A D steer · Shift or Space = turbo · M music · N sound</p>`}
+function cs(k,v){cfg[k]=v;save();show(menuHTML())}
+function storyCard(){st='story';const L=LV[li];show(`<h2>Chapter ${li+1} — ${L.n}</h2><p>${L.intro}</p><p class=dim>Burgers = points + heal · Blue canister = turbo · Cyan cube = shield · Yellow pad = free boost</p><button class=go onclick="go('drive')">Drive!</button>`)}
+function finCard(){const L=LV[li];total+=score;netSend({t:'fin',li,score:score|0});if(total>cfg.best){cfg.best=total;save()}
+show(`<h2>Burger King — stop ${li+1}</h2><p><b style=color:#fff>Rex:</b> Delivered! I grabbed ${burg} burger${burg==1?'':'s'} on the way.</p>${L.fin.map(([n,c,s])=>`<p><b style="color:${c}">${n}:</b> ${s}</p>`).join('')}
+<p class=dim>Chapter score ${score|0} · Total ${total|0}</p><button class=go onclick="go('${li<2?'next':'end'}')">${li<2?'Next chapter':'Finish'}</button>`)}
+function go(a){if(a=='menu'){st='menu';total=0;startLevel(0);show(menuHTML())}
+else if(a=='start'){total=0;startLevel(0);storyCard()}
+else if(a=='drive'){st='play';show('')}
+else if(a=='next'){startLevel(li+1);storyCard()}
+else if(a=='retry'){startLevel(li,ck);st='play';show('')}
+else if(a=='end'){st='end';show(`<h1>The End</h1><p>Mia, Tony and Joe are fed, the Hyperway is open, and Rex is a legend.</p><p><b>Final score: ${total|0}</b><br>Best: ${cfg.best}</p><button class=go onclick="go('menu')">Back to garage</button>`)}}
+onkeydown=e=>{if(e.target.tagName=='INPUT')return;initAudio();K[e.code]=1;
+if(e.code=='KeyM'){mus=!mus;if(MG)MG.gain.value=mus?.35:0}if(e.code=='KeyN'){sfx=!sfx;if(SG)SG.gain.value=sfx?.5:0}
+if(e.code=='Enter'){const b=document.querySelector('#card .go');if(b)b.click()}};onkeyup=e=>K[e.code]=0;
+addEventListener('click',e=>{initAudio();if(e.target.tagName=='BUTTON')snd('click')});
+// ---------- audio (WebAudio synth, no files) ----------
+let AC,MG,SG,NB,eng,mus=true,sfx=true,mNext=0,mStep=0,lowT=0;
+const mtof=m=>440*2**((m-69)/12);
+const MU=[{bpm:124,roots:[48,53,55,45],ty:[0,0,0,1]},{bpm:112,roots:[45,41,43,40],ty:[1,0,0,1]},{bpm:132,roots:[38,34,36,33],ty:[1,0,0,1]}];
+function initAudio(){if(AC)return;
+try{AC=new(window.AudioContext||window.webkitAudioContext)()}catch(e){console.warn('audio unavailable',e);return}
+MG=AC.createGain();MG.gain.value=mus?.35:0;MG.connect(AC.destination);SG=AC.createGain();SG.gain.value=sfx?.5:0;SG.connect(AC.destination);
+NB=AC.createBuffer(1,AC.sampleRate,AC.sampleRate);const d=NB.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+eng={o:AC.createOscillator(),g:AC.createGain(),f:AC.createBiquadFilter()};eng.o.type='sawtooth';eng.f.type='lowpass';eng.g.gain.value=0;
+eng.o.connect(eng.f);eng.f.connect(eng.g);eng.g.connect(SG);eng.o.start();
+mNext=AC.currentTime+.1;setInterval(musicTick,60)}
+function tone(f,d,type,v,sl,dst,t0){if(!AC)return;t0=t0||AC.currentTime;const o=AC.createOscillator(),g=AC.createGain();o.type=type||'square';
+o.frequency.setValueAtTime(f,t0);if(sl)o.frequency.exponentialRampToValueAtTime(Math.max(20,f*sl),t0+d);
+g.gain.setValueAtTime(v,t0);g.gain.exponentialRampToValueAtTime(.0001,t0+d);o.connect(g);g.connect(dst||SG);o.start(t0);o.stop(t0+d+.02)}
+function noise(d,v,fc,dst,t0,ty){if(!AC)return;t0=t0||AC.currentTime;const s=AC.createBufferSource(),g=AC.createGain(),f=AC.createBiquadFilter();
+s.buffer=NB;f.type=ty||'lowpass';f.frequency.value=fc;g.gain.setValueAtTime(v,t0);g.gain.exponentialRampToValueAtTime(.0001,t0+d);
+s.connect(f);f.connect(g);g.connect(dst||SG);s.start(t0);s.stop(t0+d+.02)}
+function mstep(s,t0){const m=MU[li],b=s>>4&3,bar=s&15,root=m.roots[b],tr=m.ty[b]?[0,3,7,12]:[0,4,7,12],sp=60/m.bpm/4;
+if(bar%4==0)tone(160,.22,'sine',.9,.2,MG,t0);
+if(bar==4||bar==12)noise(.16,.4,1800,MG,t0,'bandpass');
+if(bar%2==0)noise(.04,bar%4==2?.22:.1,7000,MG,t0,'highpass');
+if(bar%2==0)tone(mtof(root+(bar%8==6?0:-12)),sp*1.8,'sawtooth',.26,0,MG,t0);
+tone(mtof(root+12+tr[[0,1,2,3,2,1,3,2][bar%8]]),sp*.9,'square',.06,0,MG,t0);
+if(bs>.3&&bar%2==0)tone(mtof(root+24+tr[bar>>1&3]),sp*1.5,'triangle',.12,0,MG,t0)}
+function musicTick(){if(!AC||AC.state!='running')return;if(!mus){mNext=AC.currentTime;return}
+while(mNext<AC.currentTime+.25){mstep(mStep++,mNext);mNext+=60/MU[li].bpm/4}}
+function engine(){if(!eng||AC.state!='running')return;const on=sfx&&(st=='play'||st=='fin'||st=='over'),k=AC.currentTime;
+eng.o.frequency.setTargetAtTime(45+speed*2.4+bs*25,k,.08);eng.f.frequency.setTargetAtTime(250+speed*8,k,.1);eng.g.gain.setTargetAtTime(on?.05+.05*bs:0,k,.1)}
+function snd(n){if(!AC||!sfx)return;const t=AC.currentTime,seq=(fs,d,ty,v,gap)=>fs.forEach((f,i)=>tone(f,d,ty,v,0,SG,t+i*gap));
+switch(n){
+case'click':tone(660,.06,'square',.12,1.5);break;
+case'burger':seq([523,659,784,1047],.12,'square',.15,.05);break;
+case'turbo':tone(300,.35,'sawtooth',.15,4);noise(.3,.15,2000,SG,t,'highpass');break;
+case'shield':seq([880,1175,1568],.25,'sine',.18,.07);break;
+case'pad':tone(200,.4,'sawtooth',.14,5);break;
+case'boost':noise(.5,.3,1200,SG,t,'bandpass');tone(120,.5,'sawtooth',.12,3);break;
+case'crash':noise(.5,.8,1200);tone(90,.4,'sine',.8,.3);break;
+case'shieldhit':tone(1200,.3,'triangle',.2,.3);noise(.15,.3,4000,SG,t,'highpass');break;
+case'low':seq([880,880],.08,'square',.12,.14);break;
+case'blip':seq([900,1200],.05,'square',.07,.06);break;
+case'fanfare':seq([523,659,784,659,784,1047],.25,'square',.16,.13);break;
+case'over':seq([392,330,262,196],.3,'sawtooth',.16,.18);break;
+case'crunch':noise(.07,.35,3500,SG,t,'bandpass');break;
+case'join':seq([700,1000],.12,'triangle',.15,.1);break}}
+// ---------- multiplayer (relay server: burgerrun-server.js) ----------
+const esc=s=>String(s).replace(/[&<>"']/g,ch=>'&#'+ch.charCodeAt(0)+';');
+const mp={ws:null,id:0,peers:{},status:'offline',tick:0,lbT:0};
+const peerCfg=a=>({col:clamp(a[0]|0,0,5),style:clamp(a[1]|0,0,2),wing:clamp(a[2]|0,0,1),flame:clamp(a[3]|0,0,2)});
+const addPeer=o=>{mp.peers[o.id]={name:String(o.name).slice(0,16),cfg:peerCfg(o.a||[]),li:0,d:0,x:0,sx:0,sp:0,hp:3,on:0,init:0,ts:Date.now()}};
+function netSend(o){if(mp.ws&&mp.ws.readyState==1)mp.ws.send(JSON.stringify(o))}
+function mpRefresh(){if(st=='menu')show(menuHTML());lb()}
+function netToggle(){if(mp.ws){mp.ws.close();return}
+let w;try{w=new WebSocket(cfg.srv)}catch(e){mp.status='bad server address';return mpRefresh()}
+mp.status='connecting…';mpRefresh();
+w.onopen=()=>{mp.ws=w;netSend({t:'join',room:cfg.room,name:cfg.name,a:[cfg.col,cfg.style,cfg.wing,cfg.flame]})};
+w.onmessage=e=>netMsg(e.data);
+w.onerror=()=>{mp.status='connection failed'};
+w.onclose=()=>{mp.ws=null;mp.peers={};if(mp.status!='room full'&&mp.status!='connection failed')mp.status='offline';mpRefresh()}}
+function netMsg(raw){let m;try{m=JSON.parse(raw)}catch(e){console.warn('bad server message',e);return}
+const p=mp.peers[m.id];
+if(m.t=='hello'){mp.id=m.id;mp.peers={};(m.peers||[]).forEach(addPeer);mp.status='online · room '+cfg.room;mpRefresh()}
+else if(m.t=='peer'){addPeer(m);snd('join');say(['Race','#8f8',esc(m.name)+' joined the race']);lb()}
+else if(m.t=='s'&&p){Object.assign(p,{li:clamp(m.li|0,0,2),d:+m.d||0,x:+m.x||0,sp:+m.sp||0,hp:m.hp|0,on:m.on|0,ts:Date.now()});if(!p.init){p.sx=p.x;p.init=1}}
+else if(m.t=='leave'){delete mp.peers[m.id];lb()}
+else if(m.t=='fin'&&p)say([esc(p.name),'#ffd24a',`finished Chapter ${clamp(m.li|0,0,2)+1} with ${m.score|0} pts!`]);
+else if(m.t=='full'){mp.status='room full';mpRefresh()}}
+function lb(){const el=$('lb');if(!mp.ws){el.innerHTML='';return}
+const rows=[{n:cfg.name||'You',me:1,li,d:dist,c:cfg}];for(const id in mp.peers){const p=mp.peers[id];rows.push({n:p.name,li:p.li,d:p.d,c:p.cfg})}
+rows.sort((a,b)=>b.li-a.li||b.d-a.d);
+el.innerHTML=rows.map((r,i)=>`<div style="color:${r.me?'#ffd24a':'#fff'}"><i style="display:inline-block;width:10px;height:10px;border-radius:50%;background:rgb(${COLS[r.c.col][1].map(v=>v*255|0)})"></i> ${i+1}. ${esc(r.n)} · Ch${r.li+1} ${Math.min(100,r.d/LV[r.li].len*100|0)}%</div>`).join('')}
+function netTick(dt){if((mp.tick-=dt)<=0){mp.tick=.1;netSend({t:'s',li,d:+dist.toFixed(1),x:+px.toFixed(2),sp:speed|0,hp,on:st=='play'||st=='fin'?1:0})}
+if((mp.lbT-=dt)<=0){mp.lbT=.3;lb()}}
+// ---------- radio dialogue ----------
+const EV={burger:[['Tony','#6ab0ff','Burger secured! Save me one!'],['Mia','#ff7aa8','Nice grab, Rex. Stay fed!'],['Joe','#ffd24a','That is the spirit. Extra pickles?']],
+turbo:[['Tony','#6ab0ff','Turbo tank filled. Hold Shift and fly!'],['Mia','#ff7aa8','Go go go! Turbo time!']],
+shield:[['Joe','#ffd24a','A shield, huh. Fancy. Use it wisely.'],['Mia','#ff7aa8','Shield up! Nothing can touch you now.']],
+pad:[['Tony','#6ab0ff','Boost pad! Wheeeee!'],['Mia','#ff7aa8','Speed pad! Hang on!']],
+crash:[['Joe','#ffd24a','Ouch! I felt that from here.'],['Mia','#ff7aa8','Rex! Are you okay?'],['Tony','#6ab0ff','Keep the burgers safe!']],
+low:[['Mia','#ff7aa8','Rex, you are almost out of hearts! Find a burger!'],['Joe','#ffd24a','One more hit and you are walking, kid.']]};
+function say(l){if(sq.length<3)sq.push(l)}
+function ev(k,force){if(!force&&t-lastEv<7)return;lastEv=t;const a=EV[k];say(a[Ri(a.length)])}
+function radio(dt){sT-=dt;if(sT<=0){if(sq.length){const[n,c,s]=sq.shift();$('say').innerHTML=`<b style="color:${c}">${n}:</b> ${s}`;$('say').style.opacity=1;sT=4.2;snd('blip')}else $('say').style.opacity=0}}
+// ---------- update ----------
+function hit(o){if(inv>0)return;o.dead=1;burst(o.x,1,o.z,[1,.7,.2],14);
+if(shield>0){shield=0;inv=1;snd('shieldhit')}else{snd('crash');hp--;inv=1.6;shake=1;speed*=.55;if(hp>0)ev(hp==1?'low':'crash',hp==1);if(hp<=0){sq=[];snd('over');st='over';const q=LV[li].len/4;ck=Math.floor(dist/q)*q;show(`<h2>Wrecked!</h2><p>You reached ${(dist/LV[li].len*100)|0}% of the way to the burgers.</p><button class=go onclick="go('retry')">Retry from ${(ck/LV[li].len*100)|0}% checkpoint</button><button onclick="go('menu')">Garage</button>`)}}}
+function collect(o){o.dead=1;const k=o.k;ev(k);snd(k);
+if(k=='burger'){burg++;score+=100;hp=Math.min(3,hp+1);burst(o.x,1.2,o.z,[.95,.65,.3],12)}
+else if(k=='turbo'){meter=Math.min(100,meter+45);burst(o.x,1.2,o.z,[.3,.7,1],12)}
+else if(k=='shield'){shield=8;burst(o.x,1.2,o.z,[.3,1,1],12)}
+else if(k=='pad')pad=1.8}
+function play(dt,L){const rem=L.len-dist,kx=(K.ArrowRight||K.KeyD?1:0)-(K.ArrowLeft||K.KeyA?1:0);
+vx+=(kx*17-vx)*Math.min(1,8*dt);px=clamp(px+vx*dt,-5.6,5.6);
+const want=(K.ShiftLeft||K.ShiftRight||K.Space)&&meter>0&&rem>5;
+if(want&&!wasB)snd('boost');wasB=want;if(hp==1&&(lowT-=dt)<=0){snd('low');lowT=2}
+bs+=((want||pad>0?1:0)-bs)*Math.min(1,5*dt);
+meter=want?Math.max(0,meter-26*dt):Math.min(100,meter+2*dt);
+pad=Math.max(0,pad-dt);shield=Math.max(0,shield-dt);inv=Math.max(0,inv-dt);shake=Math.max(0,shake-3*dt);
+let target=(36+li*6+dist/L.len*10)*(1+.7*bs);if(rem<90)target=Math.min(target,rem*1.2+2);
+speed+=(target-speed)*Math.min(1,2.5*dt);dist+=speed*dt;score+=speed*dt*.1;
+if(rem>110&&(spawnD-=speed*dt)<=0){spawnRow();spawnD=Math.max(10,R(16,26)-li*2.5-dist/L.len*5)}
+for(const o of obs){if(o.dead)continue;const dx=Math.abs(o.x-px),dz=Math.abs(o.z-PZ);
+if(o.p){if(dx<(o.w+1.8)/2&&dz<(o.l+3)/2)collect(o)}else if(dx<(o.w+1.7)/2&&dz<(o.l+3.4)/2)hit(o)}
+if(bs>.25){for(let i=0;i<2;i++)pa.push({x:px+R(-.5,.5),y:.7,z:PZ+2.2,vx:R(-1,1),vy:R(0,1),vz:R(3,8),l:.45,c:FL[cfg.flame],s:.28,g:0});
+if(Math.random()<bs)pa.push({x:R(-16,16),y:R(.5,9),z:-90,vx:0,vy:0,vz:30,l:2,c:[1,1,1],s:.05,d:[.05,.05,7],g:0})}
+while(ri<L.rad.length&&dist/L.len>=L.rad[ri][0])say(L.rad[ri++][1]);
+if(dist>=L.len-2){st='fin';fT=0;sq=[];sT=0;snd('fanfare');burst(px,2,PZ,[1,.9,.3],30)}
+$('hp').textContent='♥'.repeat(Math.max(0,hp));$('scr').textContent=(score|0)+' pts';$('lv').textContent=`Ch.${li+1} ${L.n}`;
+$('spd').textContent=(speed*3|0)+' km/h';$('ex').textContent=`🍔 ${burg}${shield>0?' 🛡 '+shield.toFixed(0):''}`;
+$('mb').style.width=meter+'%';$('pb').style.width=clamp(dist/L.len*100,0,100)+'%'}
+function update(dt){const L=LV[li];radio(dt);engine();netTick(dt);
+if(st=='play')play(dt,L);
+else{speed+=((st=='fin'||st=='over'?0:9)-speed)*Math.min(1,(st=='fin'?3:2)*dt);bs+=(0-bs)*Math.min(1,4*dt);
+if(st=='fin'){px+=(-4-px)*Math.min(1,2*dt);vx=0;fT+=dt;if(Math.random()<dt*4)snd('crunch');if(fT>2.5&&!fS){fS=1;finCard()}}
+else if(st!='over')px+=(0-px)*Math.min(1,3*dt)}
+$('hud').style.display=st=='play'||st=='fin'?'':'none';
+scroll+=speed*dt;
+if((treeD-=speed*dt)<=0){addTree(-240);treeD=R(5,9)}
+if(st=='play'&&L.len-dist>200&&(standD-=speed*dt)<=0){addStand(-240);standD=R(280,450)}
+sc.forEach(o=>o.z+=speed*dt);obs.forEach(o=>o.z+=(speed-(o.sp||0))*dt);
+pa.forEach(p=>{p.vy-=p.g*dt;p.x+=p.vx*dt;p.y=Math.max(.05,p.y+p.vy*dt);p.z+=(p.vz+speed)*dt;p.l-=dt});
+obs=obs.filter(o=>!o.dead&&o.z<25);sc=sc.filter(o=>o.z<30);pa=pa.filter(p=>p.l>0&&p.z<30);
+t+=dt}
+// ---------- render ----------
+function camera(dt){let e,g,k=14;
+if(st=='play'||st=='over'){e=[px*.5+(Math.random()-.5)*shake,3.7-bs*.4+(Math.random()-.5)*shake,PZ+8.8-bs*1];g=[px*.4,1.3,PZ-14]}
+else if(st=='fin'){e=[4.5,3.8,PZ+12];g=[-10,2.8,PZ];k=2.5}
+else{const a=t*.4;e=[Math.sin(a)*7,2.6,PZ+Math.cos(a)*7];g=[0,.8,PZ];k=3}
+for(let i=0;i<3;i++){ce[i]+=(e[i]-ce[i])*Math.min(1,k*dt);ct[i]+=(g[i]-ct[i])*Math.min(1,k*dt)}}
+let last=performance.now();
+function render(dt){const L=LV[li],dpr=Math.min(devicePixelRatio||1,2),w=innerWidth*dpr|0,h=innerHeight*dpr|0;
+if(c.width!=w||c.height!=h){c.width=w;c.height=h}gl.viewport(0,0,w,h);gl.clearColor(0,0,0,0);gl.clear(16640);
+camera(dt);gl.uniformMatrix4fv(u.P,0,persp((60+bs*22)*Math.PI/180,w/h,.3,600));gl.uniformMatrix4fv(u.V,0,lookAt(ce,ct));gl.uniform3fv(u.E,ce);
+const I=T(0,0,0);
+MES.forEach(m=>D(X(T(m.x,m.h/2-6,m.z),RY(.785)),[m.w,m.h,m.w],L.mesa,{s:.05}));
+D(T(0,-.32,-150),[700,.3,700],L.grass);D(T(0,-.05,-135),[14,.1,330],[.16,.16,.18],{s:.2});
+for(const sx of[-1,1]){D(T(sx*7.4,.1,-135),[.8,.25,330],[.55,.55,.55]);D(T(sx*6.6,.02,-135),[.2,.02,330],[1,1,1],{e:.1})}
+const off=scroll%12;for(const x of[-3,0,3])for(let k=0;k<28;k++)D(T(x,.03,20-k*12+off),[.18,.02,4],[1,1,1],{e:.15});
+// shadows
+const sh=(x,z,ww,ll)=>D(T(x+.4,.04,z+.3),[ww*1.1,.02,ll*1.1],[0,0,0],{a:.35});
+obs.forEach(o=>{if(!o.p&&o.z>-240)sh(o.x,o.z,o.w,o.l)});sh(px,PZ,2,3.6);
+sc.forEach(o=>{if(o.z<-250)return;if(o.k=='tree')sh(o.x,o.z,3*o.s,3*o.s);else if(o.k=='stand')sh(o.x,o.z,7,9)});
+// scenery
+sc.forEach(o=>{if(o.z<-250)return;const M=T(o.x,0,o.z);
+if(o.k=='tree')tree(M,o.s,L.tree);else if(o.k=='lamp')lamp(X(M,RY(o.x<0?0:Math.PI)),L.night);else stand(X(M,RY(o.ry)),o,t)});
+// obstacles & pickups
+obs.forEach(o=>{if(o.z<-250)return;const M=T(o.x,0,o.z),k=o.k;
+if(k=='car'||k=='truck')car(M,o,t);
+else if(k=='bar'){for(let i=0;i<5;i++)D(X(M,T(-1.2+i*.6,.8,0)),[.6,1.2,.6],i%2?[1,1,1]:[.9,.2,.1],{s:.3});D(X(M,T(0,.4,0)),[3.2,.2,.3],[.4,.4,.4])}
+else if(k=='cone'){for(let i=0;i<2;i++){D(X(M,T(i*.7-.35,.5,0)),[.5,1,.5],[1,.45,.05],{s:.3});D(X(M,T(i*.7-.35,.6,0)),[.52,.2,.52],[1,1,1])}}
+else if(k=='burger')burger(X(M,T(0,1.2+Math.sin(t*4)*.2,0),RY(t*2)),2);
+else if(k=='turbo'){const Y=X(M,T(0,1.3+Math.sin(t*4)*.2,0),RY(t*2));D(Y,[.6,1.1,.6],[.2,.5,1],{e:.9,s:.8});D(X(Y,T(0,0,0),RZ(.3)),[.15,.9,.65],[1,.9,.2],{e:1})}
+else if(k=='shield')D(X(M,T(0,1.3+Math.sin(t*4)*.2,0),RY(t*3),RX(t*2)),[1.1,1.1,1.1],[.3,1,1],{e:.8,a:.65});
+else if(k=='pad'){D(X(M,T(0,.04,0)),[3,.05,4],[1,.8,0],{e:.9});for(let i=0;i<3;i++)D(X(M,T(0,.08,-1.2+i*1.1),RY(0)),[2,.04,.35],[1,.3,0],{e:1})}});
+// other racers (ghosts)
+if(mp.ws){GA=.55;const now=Date.now();for(const id in mp.peers){const p=mp.peers[id];if(!p.on||p.li!=li)continue;
+const z=PZ-(p.d+p.sp*Math.min(now-p.ts,500)/1000-dist);p.sx+=(p.x-p.sx)*.25;
+if(z>-240&&z<25){shipModel(T(p.sx,0,z),t,0,p.cfg);D(T(p.sx,3.4+Math.sin(t*4)*.15,z),[.5,.5,.5],COLS[p.cfg.col][1],{e:1})}}GA=1}
+// player
+if(st!='menu'||true){if(inv<=0||Math.floor(t*14)%2){const lean=-vx*.012;
+const M=X(T(px,st=='play'&&cfg.style==2?.15+Math.sin(t*5)*.08:0,PZ),RZ(lean),RY(-vx*.01));shipModel(M,t,bs);
+if(shield>0)D(X(T(px,1,PZ),RY(t*2)),[3,2.2,4.6],[.3,.9,1],{e:.6,a:.22})}}
+// particles
+pa.forEach(p=>D(T(p.x,p.y,p.z),p.d||[p.s,p.s,p.s],p.c,{e:1,a:Math.min(1,p.l*3)}));
+}
+(function loop(now){const dt=Math.min((now-last)/1000,.05);last=now;update(dt);render(dt);requestAnimationFrame(loop)})(last);
+go('menu');
+</script>
